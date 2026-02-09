@@ -60,6 +60,26 @@ app.post('/api/login', (req, res) => {
     }
 });
 
+// === POSTS API ===
+
+app.get('/api/posts', (req, res) => {
+    // Return dummy posts for now
+    res.json([
+        {
+            id: '1',
+            author: 'Astra',
+            content: 'Welcome to Google+ Reborn! This is the first post on the new network. #anemoia #revival',
+            date: 'Just now'
+        },
+        {
+            id: '2',
+            author: 'David',
+            content: 'Testing the new Flutter client. It looks amazing! 🚀',
+            date: '5 mins ago'
+        }
+    ]);
+});
+
 // Log everything!
 app.use((req, res, next) => {
     const timestamp = new Date().toISOString();
