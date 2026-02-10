@@ -85,12 +85,23 @@ app.post('/api/posts', (req, res) => {
 
 // === COMMENTS & LIKES ===
 app.post('/api/posts/:id/like', (req, res) => {
+    const { userId } = req.body;
     const post = posts.find(p => p.id === req.params.id);
     if (!post) return res.status(404).json({error: 'Post not found'});
     
-    post.likes = (post.likes || 0) + 1;
+    if (!post.likedBy) post.likedBy = [];
+    
+    const index = post.likedBy.indexOf(userId);
+    if (index === -1) {
+        post.likedBy.push(userId);
+        post.likes = (post.likes || 0) + 1;
+    } else {
+        post.likedBy.splice(index, 1);
+        post.likes = Math.max(0, (post.likes || 0) - 1);
+    }
+    
     savePosts();
-    res.json({success: true, likes: post.likes});
+    res.json({success: true, likes: post.likes, liked: index === -1});
 });
 
 app.post('/api/posts/:id/comments', (req, res) => {
