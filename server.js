@@ -83,7 +83,16 @@ app.post('/api/posts', (req, res) => {
     res.status(201).json(post);
 });
 
-// === COMMENTS ===
+// === COMMENTS & LIKES ===
+app.post('/api/posts/:id/like', (req, res) => {
+    const post = posts.find(p => p.id === req.params.id);
+    if (!post) return res.status(404).json({error: 'Post not found'});
+    
+    post.likes = (post.likes || 0) + 1;
+    savePosts();
+    res.json({success: true, likes: post.likes});
+});
+
 app.post('/api/posts/:id/comments', (req, res) => {
     const { content, authorId } = req.body;
     const post = posts.find(p => p.id === req.params.id);
