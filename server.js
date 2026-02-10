@@ -2,104 +2,123 @@ const express = require('express');
 const fs = require('fs');
 const app = express();
 
-app.use(express.json()); // Enable JSON body parsing
+app.use(express.json());
 
-// Simple File DB
+// DB Files
 const DB_FILE = 'users.json';
+const POSTS_FILE = 'posts.json';
 let users = [];
+let posts = [];
 
-if (fs.existsSync(DB_FILE)) {
-    try {
-        users = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    } catch (e) {
-        console.error('Error reading users DB:', e.message);
-    }
-}
+// Load Data
+try { if (fs.existsSync(DB_FILE)) users = JSON.parse(fs.readFileSync(DB_FILE)); } catch(e){}
+try { if (fs.existsSync(POSTS_FILE)) posts = JSON.parse(fs.readFileSync(POSTS_FILE)); } catch(e){}
 
-function saveUsers() {
-    fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2));
-}
+function saveUsers() { fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2)); }
+function savePosts() { fs.writeFileSync(POSTS_FILE, JSON.stringify(posts, null, 2)); }
 
-// === AUTH API ===
-
+// === AUTH ===
 app.post('/api/register', (req, res) => {
+    console.log('[AUTH] Register request:', req.body);
     const { name, email, password } = req.body;
-    if (!name || !email || !password) {
-        return res.status(400).json({ error: 'Missing fields' });
-    }
+    if (!name || !email || !password) return res.status(400).json({error: 'Missing fields'});
+    if (users.find(u => u.email === email)) return res.status(409).json({error: 'Exists'});
     
-    if (users.find(u => u.email === email)) {
-        return res.status(409).json({ error: 'User already exists' });
-    }
-    
-    const newUser = {
-        id: Date.now().toString(),
-        name,
-        email,
-        password, // TODO: Hash this!
-        joinedAt: new Date().toISOString()
-    };
-    
+    const newUser = { id: Date.now().toString(), name, email, password, joinedAt: new Date().toISOString() };
     users.push(newUser);
     saveUsers();
-    
-    console.log(`[AUTH] New user: ${name} (${email})`);
-    res.status(201).json({ success: true, user: { id: newUser.id, name: newUser.name } });
+    console.log(`[AUTH] Registered user: ${name}, ID: ${newUser.id}`);
+    res.status(201).json({success: true, user: newUser});
 });
 
 app.post('/api/login', (req, res) => {
+    console.log('[AUTH] Login request:', req.body);
     const { email, password } = req.body;
     const user = users.find(u => u.email === email && u.password === password);
-    
     if (user) {
-        console.log(`[AUTH] Login success: ${user.name}`);
-        res.json({ success: true, token: 'mock_token_' + user.id, user: { id: user.id, name: user.name } });
+        console.log(`[AUTH] Login success: ${user.name}, ID: ${user.id}`);
+        res.json({success: true, token: 'token_'+user.id, user});
     } else {
         console.log(`[AUTH] Login failed for ${email}`);
-        res.status(401).json({ error: 'Invalid credentials' });
+        res.status(401).json({error: 'Invalid credentials'});
     }
 });
 
-// === POSTS API ===
-
+// === POSTS ===
 app.get('/api/posts', (req, res) => {
-    // Return dummy posts for now
-    res.json([
-        {
-            id: '1',
-            author: 'Astra',
-            content: 'Welcome to Google+ Reborn! This is the first post on the new network. #anemoia #revival',
-            date: 'Just now'
-        },
-        {
-            id: '2',
-            author: 'David',
-            content: 'Testing the new Flutter client. It looks amazing! 🚀',
-            date: '5 mins ago'
-        }
-    ]);
+    res.json(posts.slice().reverse());
 });
 
-// Log everything!
-app.use((req, res, next) => {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] ${req.method} ${req.url}`);
-    console.log('Headers:', JSON.stringify(req.headers));
+app.post('/api/posts', (req, res) => {
+    console.log('[POST] Create request body:', req.body);
+    const { content, authorId } = req.body;
+    console.log(`[POST] Author ID from request: "${authorId}"`);
     
-    // Capture body
-    let data = '';
-    req.on('data', chunk => data += chunk);
-    req.on('end', () => {
-        if (data) {
-            console.log('Body:', data);
-            // Save to file for analysis
-            fs.appendFileSync('traffic.log', `\n--- ${timestamp} ---\n${req.method} ${req.url}\nHeaders: ${JSON.stringify(req.headers)}\nBody: ${data}\n`);
-        }
-        next();
-    });
+    if (!content || !authorId) {
+        console.error('[POST] Missing content or authorId');
+        return res.status(400).json({error: 'Missing data'});
+    }
+    
+    const user = users.find(u => u.id === authorId);
+    if (!user) {
+        console.error(`[POST] User not found by ID: ${authorId}`);
+        // Log all users to debug
+        console.log(`[DEBUG] Available User IDs: ${users.map(u => u.id).join(', ')}`);
+        // Allow posting as Guest for debug? No, better fix it.
+        // return res.status(400).json({error: 'User not found'});
+    }
+    
+    const post = {
+        id: Date.now().toString(),
+        author: user ? user.name : 'Unknown',
+        authorId,
+        content,
+        date: new Date().toISOString(),
+        likes: 0,
+        comments: []
+    };
+    posts.push(post);
+    savePosts();
+    console.log(`[POST] Created by ${post.author}`);
+    res.status(201).json(post);
 });
 
-// Catch-all route (Google+ uses many weird paths)
+// === COMMENTS ===
+app.post('/api/posts/:id/comments', (req, res) => {
+    const { content, authorId } = req.body;
+    const post = posts.find(p => p.id === req.params.id);
+    if (!post) return res.status(404).json({error: 'Post not found'});
+    
+    const user = users.find(u => u.id === authorId);
+    const comment = {
+        id: Date.now().toString(),
+        author: user ? user.name : 'Unknown',
+        content,
+        date: new Date().toISOString()
+    };
+    
+    if (!post.comments) post.comments = [];
+    post.comments.push(comment);
+    savePosts();
+    res.status(201).json(comment);
+});
+
+// === PROFILE ===
+app.get('/api/users/:id', (req, res) => {
+    console.log(`[PROFILE] Request for ID: "${req.params.id}"`);
+    const user = users.find(u => u.id === req.params.id);
+    
+    if (!user) {
+        console.log(`[PROFILE] User NOT found!`);
+        console.log(`[DEBUG] Available User IDs: ${users.map(u => u.id).join(', ')}`);
+        return res.status(404).json({error: 'User not found'});
+    }
+    
+    const userPosts = posts.filter(p => p.authorId === user.id);
+    res.json({ ...user, posts: userPosts });
+});
+
+// === STATIC FILES ===
 app.use('/files', express.static('public', {
   setHeaders: (res, path) => {
     if (path.endsWith('.apk')) {
@@ -109,8 +128,15 @@ app.use('/files', express.static('public', {
   }
 }));
 
+// Log everything!
+app.use((req, res, next) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.url}`);
+    next();
+});
+
+// Catch-all
 app.all('*', (req, res) => {
-    // Determine what to return based on URL
     if (req.url.includes('plusi')) {
         res.status(500).send('Not Implemented Yet (Anemoia)');
     } else {
@@ -120,6 +146,5 @@ app.all('*', (req, res) => {
 
 const PORT = process.env.PORT || 80;
 app.listen(PORT, () => {
-    console.log(`Anemoia G+ Server listening on port ${PORT}`);
-    console.log('Ready to capture traffic! 🕸️');
+    console.log(`Anemoia G+ Server v0.3 (Debug) Ready! 🚀`);
 });
